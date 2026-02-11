@@ -1,0 +1,180 @@
+# PIPELINE DEFINITION
+# Name: fgsm-training-pipeline
+# Inputs:
+#    batch_size: int [Default: 64.0]
+#    data_url: str [Default: 'http://147.102.19.170:4422/download/classifier']
+#    epochs: int [Default: 10.0]
+#    lr: float [Default: 0.001]
+components:
+  comp-download-dataset:
+    executorLabel: exec-download-dataset
+    inputDefinitions:
+      parameters:
+        data_url:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_dir:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-train-model-a:
+    executorLabel: exec-train-model-a
+    inputDefinitions:
+      artifacts:
+        dataset_dir:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        epochs:
+          parameterType: NUMBER_INTEGER
+        lr:
+          parameterType: NUMBER_DOUBLE
+deploymentSpec:
+  executors:
+    exec-download-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_dataset(output_dir: dsl.Output[dsl.Artifact], data_url:\
+          \ str):\n    import requests, zipfile, os\n\n    zip_path = \"data.zip\"\
+          \n\n    with requests.get(data_url, stream=True) as r:\n        r.raise_for_status()\n\
+          \        with open(zip_path, \"wb\") as f:\n            for chunk in r.iter_content(8192):\n\
+          \                if chunk:\n                    f.write(chunk)\n\n    os.makedirs(output_dir.path,\
+          \ exist_ok=True)\n\n    with zipfile.ZipFile(zip_path, \"r\") as zip_ref:\n\
+          \        zip_ref.extractall(output_dir.path)\n\n    print(\"Extracted to:\"\
+          , output_dir.path)\n\n"
+        image: python:3.12
+    exec-train-model-a:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model_a
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model_a(\n    dataset_dir: dsl.Input[dsl.Artifact],\n \
+          \   epochs: int,\n    batch_size: int,\n    lr: float,\n):\n    import os\n\
+          \    import torch\n    from classifier import MNISTClassifier\n    from\
+          \ standard_training import get_mnist_loaders, train_standard\n\n    device\
+          \ = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n\n\
+          \    data_root = dataset_dir.path\n\n    train_loader, test_loader = get_mnist_loaders(\n\
+          \        batch_size=batch_size,\n        data_dir=data_root\n    )\n\n \
+          \   model = MNISTClassifier().to(device)\n\n    # \u2705 WRITE DIRECTLY\
+          \ TO PVC\n    os.makedirs(\"/trained_models\", exist_ok=True)\n    save_path\
+          \ = \"/trained_models/model_a.pth\"\n\n    train_standard(\n        model,\n\
+          \        train_loader,\n        test_loader,\n        device,\n        epochs=epochs,\n\
+          \        lr=lr,\n        save_path=save_path\n    )\n\n    print(\"Model\
+          \ saved to PVC:\", save_path)\n\n"
+        image: gkorod/trainer:v1.0
+pipelineInfo:
+  name: fgsm-training-pipeline
+root:
+  dag:
+    tasks:
+      download-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-dataset
+        inputs:
+          parameters:
+            data_url:
+              componentInputParameter: data_url
+        taskInfo:
+          name: download-dataset
+      train-model-a:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model-a
+        dependentTasks:
+        - download-dataset
+        inputs:
+          artifacts:
+            dataset_dir:
+              taskOutputArtifact:
+                outputArtifactKey: output_dir
+                producerTask: download-dataset
+          parameters:
+            batch_size:
+              componentInputParameter: batch_size
+            epochs:
+              componentInputParameter: epochs
+            lr:
+              componentInputParameter: lr
+        taskInfo:
+          name: train-model-a
+  inputDefinitions:
+    parameters:
+      batch_size:
+        defaultValue: 64.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      data_url:
+        defaultValue: http://147.102.19.170:4422/download/classifier
+        isOptional: true
+        parameterType: STRING
+      epochs:
+        defaultValue: 10.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      lr:
+        defaultValue: 0.001
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.9.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-train-model-a:
+          pvcMount:
+          - constant: trained-models
+            mountPath: /trained_models

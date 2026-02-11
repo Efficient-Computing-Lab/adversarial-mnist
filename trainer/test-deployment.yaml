@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trained-models-debugger
+  namespace: kubeflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trained-models-debugger
+  template:
+    metadata:
+      labels:
+        app: trained-models-debugger
+    spec:
+      containers:
+        - name: debugger
+          image: busybox
+          command: ["sh", "-c", "sleep 360000"]
+          volumeMounts:
+            - name: trained-models-vol
+              mountPath: /mnt/models
+      volumes:
+        - name: trained-models-vol
+          persistentVolumeClaim:
+            claimName: trained-models
