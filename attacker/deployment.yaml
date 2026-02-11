@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: attacker
+  namespace: kubeflow
+  labels:
+    app: attacker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: attacker
+  template:
+    metadata:
+      labels:
+        app: attacker
+    spec:
+      containers:
+        - name: attacker
+          image: gkorod/attacker:v1.0
+          imagePullPolicy: Always
+          env:
+            - name: DATA_URL
+              value: 'http://147.102.19.170:4422/download/classifier'
+            - name: MODEL_PATH
+              value: '/trained_models/model_a.pth'
+            - name: BATCH_SIZE
+              value: '64'
+            - name: EPSILON
+              value: '0.15'
+            - name: EVAL_SAMPLES
+              value: '5000'
+          volumeMounts:
+            - name: host-file
+              mountPath: /trained_models/model_a.pth
+
+      volumes:
+        - name: host-file
+          hostPath:
+            path: /home/gkorod/Downloads/model_a.pth   # file on the node
+            type: File

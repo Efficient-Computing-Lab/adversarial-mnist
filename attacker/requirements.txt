@@ -1,0 +1,6 @@
+torch
+requests
+numpy
+tqdm
+matplotlib
+torchvision
