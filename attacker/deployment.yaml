@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: attacker
-          image: gkorod/attacker:v1.0
+          image: gkorod/attacker:v1.1
           imagePullPolicy: Always
           env:
             - name: DATA_URL
@@ -31,11 +31,10 @@ spec:
             - name: EVAL_SAMPLES
               value: '5000'
           volumeMounts:
-            - name: host-file
-              mountPath: /trained_models/model_a.pth
+            - name: trained-models-volume
+              mountPath: /trained_models
 
       volumes:
-        - name: host-file
-          hostPath:
-            path: /home/gkorod/Downloads/model_a.pth   # file on the node
-            type: File
+        - name: trained-models-volume
+          persistentVolumeClaim:
+            claimName: trained-models
