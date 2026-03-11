@@ -1,0 +1,229 @@
+# PIPELINE DEFINITION
+# Name: adversarial-training-pipeline
+# Inputs:
+#    alpha: float [Default: 0.1]
+#    batch_size: int [Default: 64.0]
+#    data_url: str [Default: 'http://147.102.19.170:4422/download/classifier']
+#    epochs: int [Default: 20.0]
+#    epsilon: float [Default: 0.15]
+#    learning_rate: float [Default: 0.0001]
+#    model_path: str [Default: '/trained_models/classifier/']
+#    pgd_steps: int [Default: 20.0]
+components:
+  comp-adversarial-retraining:
+    executorLabel: exec-adversarial-retraining
+    inputDefinitions:
+      artifacts:
+        dataset_dir:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        alpha:
+          parameterType: NUMBER_DOUBLE
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        epochs:
+          parameterType: NUMBER_INTEGER
+        epsilon:
+          parameterType: NUMBER_DOUBLE
+        learning_rate:
+          parameterType: NUMBER_DOUBLE
+        model_path:
+          parameterType: STRING
+        pgd_steps:
+          parameterType: NUMBER_INTEGER
+  comp-download-dataset:
+    executorLabel: exec-download-dataset
+    inputDefinitions:
+      parameters:
+        data_url:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_dir:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-adversarial-retraining:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - adversarial_retraining
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef adversarial_retraining(\n    dataset_dir: dsl.Input[dsl.Artifact],\n\
+          \    batch_size: int,\n    epsilon: float,\n    epochs: int,\n    learning_rate:\
+          \ float,\n    alpha: float,\n    pgd_steps: int,\n    model_path: str,\n\
+          ):\n    import torch\n    from classifier import MNISTClassifier\n    from\
+          \ adversarial_retraining import retrain_on_the_fly\n    from standard_training\
+          \ import get_mnist_loaders\n    import os\n    device = torch.device(\"\
+          cuda\" if torch.cuda.is_available() else \"cpu\")\n\n    data_root = dataset_dir.path\n\
+          \n    print(\"Dataset directory received:\", data_root)\n    for file in\
+          \ os.listdir(model_path):\n        if file.endswith(\".pth\"):\n       \
+          \     found_model = os.path.join(model_path, file)\n    print(\"Model path:\"\
+          , found_model)\n\n    train_loader, test_loader = get_mnist_loaders(\n \
+          \       batch_size=batch_size,\n        data_dir=data_root\n    )\n\n  \
+          \  model_A = MNISTClassifier()\n    save_path = \"trained_models/classifier_retrained_adv/model_a.pth\"\
+          \n    checkpoint = torch.load(found_model, map_location=device)\n    model_A.load_state_dict(checkpoint[\"\
+          model_state_dict\"])\n    model_A.to(device)\n\n    print(\"=\" * 60)\n\
+          \    print(\"On-the-fly adversarial training\")\n    print(\"=\" * 60)\n\
+          \n    retrain_on_the_fly(\n        model=model_A,\n        train_loader=train_loader,\n\
+          \        test_loader=test_loader,\n        device=device,\n        epochs=epochs,\n\
+          \        lr=learning_rate,\n        epsilon=epsilon,\n        alpha=alpha,\n\
+          \        num_steps=pgd_steps,\n        save_path=save_path\n    )\n\n  \
+          \  print(\"Retrained model saved to:\", model_path)\n\n"
+        image: gkorod/defender:v1.0
+        resources:
+          accelerator:
+            count: '1'
+            type: nvidia.com/gpu
+    exec-download-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_dataset(output_dir: dsl.Output[dsl.Artifact], data_url:\
+          \ str):\n    import requests\n    import zipfile\n    import os\n\n    zip_path\
+          \ = \"data.zip\"\n\n    # Download dataset\n    with requests.get(data_url,\
+          \ stream=True) as r:\n        r.raise_for_status()\n        with open(zip_path,\
+          \ \"wb\") as f:\n            for chunk in r.iter_content(8192):\n      \
+          \          if chunk:\n                    f.write(chunk)\n\n    print(\"\
+          Downloaded dataset\")\n\n    extract_root = output_dir.path\n    os.makedirs(extract_root,\
+          \ exist_ok=True)\n\n    # Unzip dataset\n    with zipfile.ZipFile(zip_path,\
+          \ \"r\") as zip_ref:\n        zip_ref.extractall(extract_root)\n\n    print(\"\
+          Extracted to:\", extract_root)\n\n    # Detect inner dataset folder\n  \
+          \  child_folders = [\n        f for f in os.listdir(extract_root)\n    \
+          \    if os.path.isdir(os.path.join(extract_root, f))\n    ]\n\n    if child_folders:\n\
+          \        dataset_root = os.path.join(extract_root, child_folders[0])\n \
+          \       print(\"Detected dataset root:\", dataset_root)\n    else:\n   \
+          \     dataset_root = extract_root\n        print(\"Using root dataset:\"\
+          , dataset_root)\n\n    print(\"Final dataset path used by pipeline:\", dataset_root)\n\
+          \n"
+        image: python:3.12
+pipelineInfo:
+  name: adversarial-training-pipeline
+root:
+  dag:
+    tasks:
+      adversarial-retraining:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-adversarial-retraining
+        dependentTasks:
+        - download-dataset
+        inputs:
+          artifacts:
+            dataset_dir:
+              taskOutputArtifact:
+                outputArtifactKey: output_dir
+                producerTask: download-dataset
+          parameters:
+            alpha:
+              componentInputParameter: alpha
+            batch_size:
+              componentInputParameter: batch_size
+            epochs:
+              componentInputParameter: epochs
+            epsilon:
+              componentInputParameter: epsilon
+            learning_rate:
+              componentInputParameter: learning_rate
+            model_path:
+              componentInputParameter: model_path
+            pgd_steps:
+              componentInputParameter: pgd_steps
+        taskInfo:
+          name: adversarial-retraining
+      download-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-dataset
+        inputs:
+          parameters:
+            data_url:
+              componentInputParameter: data_url
+        taskInfo:
+          name: download-dataset
+  inputDefinitions:
+    parameters:
+      alpha:
+        defaultValue: 0.1
+        parameterType: NUMBER_DOUBLE
+      batch_size:
+        defaultValue: 64.0
+        parameterType: NUMBER_INTEGER
+      data_url:
+        defaultValue: http://147.102.19.170:4422/download/classifier
+        parameterType: STRING
+      epochs:
+        defaultValue: 20.0
+        parameterType: NUMBER_INTEGER
+      epsilon:
+        defaultValue: 0.15
+        parameterType: NUMBER_DOUBLE
+      learning_rate:
+        defaultValue: 0.0001
+        parameterType: NUMBER_DOUBLE
+      model_path:
+        defaultValue: /trained_models/classifier/
+        parameterType: STRING
+      pgd_steps:
+        defaultValue: 20.0
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.9.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-adversarial-retraining:
+          pvcMount:
+          - constant: trained-models
+            mountPath: /trained_models

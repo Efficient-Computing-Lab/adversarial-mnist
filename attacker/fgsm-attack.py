@@ -23,10 +23,92 @@ batch_size = int(os.getenv("BATCH_SIZE", 64))
 epsilon = float(os.getenv("EPSILON", 0.15))
 eval_samples = int(os.getenv("EVAL_SAMPLES", 5000))
 url_dataset = os.getenv("DATA_URL", "EMPTY")
-
+selector = os.getenv("SELECTOR","EMPTY")
+model_with_defence =os.getenv("MODEL_WITH_DEFENCE", "EMPTY")
 # ----------------------------
 # Helper Functions
 # ----------------------------
+def evaluate_attack_transfer(source_model, target_model, test_loader, device,
+                             epsilon, num_samples=None):
+    """
+    Evaluate transfer attack: generate FGSM from source_model, test on target_model.
+    This simulates the actual threat: attacker uses FGSM on Model A, we deploy Model A′.
+    """
+
+
+    source_model.eval()
+    target_model.eval()
+
+    fgsm_attack = FGSM(source_model, epsilon=epsilon)
+
+    correct_clean = 0
+    correct_adv = 0
+    total = 0
+
+    pbar = tqdm(test_loader, desc='Transfer Attack Eval', leave=False)
+    for images, labels in pbar:
+        if num_samples and total >= num_samples:
+            break
+
+        images, labels = images.to(device), labels.to(device)
+
+        # Generate adversarial examples using SOURCE model (Model A)
+        adv_images = fgsm_attack.attack(images, labels)
+
+        with torch.no_grad():
+            # Evaluate on TARGET model (Model A′)
+            outputs_clean = target_model(images)
+            _, pred_clean = outputs_clean.max(1)
+            correct_clean += pred_clean.eq(labels).sum().item()
+
+            outputs_adv = target_model(adv_images)
+            _, pred_adv = outputs_adv.max(1)
+            correct_adv += pred_adv.eq(labels).sum().item()
+
+            total += labels.size(0)
+
+    return {
+        'clean_accuracy': 100. * correct_clean / total,
+        'adversarial_accuracy': 100. * correct_adv / total,
+        'samples_evaluated': total
+    }
+
+def evaluation_setting(selector):
+    results = ""
+    if selector == "perform_attack":
+        results = evaluate_attack(
+            model_A, attack, test_loader, device,
+            num_samples=eval_samples
+        )
+        print(f"Model A under FGSM (epsilon={epsilon}):")
+        print(f"  Clean accuracy: {results['clean_accuracy']:.2f}%")
+        print(f"  FGSM accuracy:  {results['adversarial_accuracy']:.2f}%")
+        print(f"  Attack success: {results['attack_success_rate']:.2f}%")
+    if selector == "validate_defence":
+        model_A_prime = MNISTClassifier()
+        if model_path != "EMPTY":
+            print(f"Loading pre-trained Model A from {model_with_defence}")
+            checkpoint = torch.load(model_with_defence, map_location=device)
+            model_A_prime.load_state_dict(checkpoint['model_state_dict'])
+        model_A_prime.to(device)
+        model_A_prime.eval()
+        attack_prime = FGSM(model_A_prime, epsilon=epsilon)
+        results_A = evaluate_attack(
+            model_A_prime, attack_prime, test_loader, device,
+            num_samples=eval_samples
+        )
+        print(f"Model A under FGSM (epsilon={epsilon}):")
+        print(f"  Clean accuracy: {results_A['clean_accuracy']:.2f}%")
+        print(f"  FGSM accuracy:  {results_A['adversarial_accuracy']:.2f}%")
+        print(f"  Attack success: {results_A['attack_success_rate']:.2f}%")
+
+        results_B = evaluate_attack_transfer(
+            model_A, model_A_prime, test_loader, device,
+            epsilon=epsilon, num_samples=eval_samples
+        )
+        print(results_B)
+    return results
+
 def download_dataset():
     output_file = "data.zip"
     with requests.get(url_dataset, stream=True) as r:
@@ -124,7 +206,8 @@ def save_malicius_dataset(result):
     print(f"Saved {images.shape[0]} adversarial images and labels to '{data_dir}'")
 
     # Zip the folder
-    zip_path = zip_output("data.zip")
+    os.makedirs("/datasets/attack/", exist_ok=True)
+    zip_path = zip_output("/datasets/attack/malicious_data.zip")
     print(f"Dataset zipped at: {zip_path}")
 
 # ----------------------------
@@ -180,15 +263,9 @@ generated_data = {
 }
 
 # 6️⃣ Evaluate attack on Model A using the FGSM object
-results_A = evaluate_attack(
-    model_A, attack, test_loader, device,
-    num_samples=eval_samples
-)
 
-print(f"Model A under FGSM (epsilon={epsilon}):")
-print(f"  Clean accuracy: {results_A['clean_accuracy']:.2f}%")
-print(f"  FGSM accuracy:  {results_A['adversarial_accuracy']:.2f}%")
-print(f"  Attack success: {results_A['attack_success_rate']:.2f}%")
+results_A =evaluation_setting(selector)
+
 
 # 7️⃣ Save & zip FGSM dataset in ubyte.gz format
 save_malicius_dataset(generated_data)

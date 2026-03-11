@@ -100,16 +100,21 @@ deploymentSpec:
           \ *\n\ndef train_model_a(\n    dataset_dir: dsl.Input[dsl.Artifact],\n \
           \   epochs: int,\n    batch_size: int,\n    lr: float,\n):\n    import os\n\
           \    import torch\n    from classifier import MNISTClassifier\n    from\
-          \ standard_training import get_mnist_loaders, train_standard\n\n    device\
-          \ = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n\n\
-          \    data_root = dataset_dir.path\n\n    train_loader, test_loader = get_mnist_loaders(\n\
-          \        batch_size=batch_size,\n        data_dir=data_root\n    )\n\n \
-          \   model = MNISTClassifier().to(device)\n\n    # \u2705 WRITE DIRECTLY\
-          \ TO PVC\n    os.makedirs(\"/trained_models\", exist_ok=True)\n    save_path\
-          \ = \"/trained_models/model_a.pth\"\n\n    train_standard(\n        model,\n\
-          \        train_loader,\n        test_loader,\n        device,\n        epochs=epochs,\n\
-          \        lr=lr,\n        save_path=save_path\n    )\n\n    print(\"Model\
-          \ saved to PVC:\", save_path)\n\n"
+          \ standard_training import get_mnist_loaders, train_standard,evaluate\n\
+          \    import json\n\n    device = torch.device(\"cuda\" if torch.cuda.is_available()\
+          \ else \"cpu\")\n\n    data_root = dataset_dir.path\n\n    train_loader,\
+          \ test_loader = get_mnist_loaders(\n        batch_size=batch_size,\n   \
+          \     data_dir=data_root\n    )\n\n    model = MNISTClassifier().to(device)\n\
+          \n\n    # \u2705 WRITE DIRECTLY TO PVC\n    os.makedirs(\"/trained_models/classifier\"\
+          , exist_ok=True)\n    save_path = \"/trained_models/classifier/model_a.pth\"\
+          \n\n    train_standard(\n        model,\n        train_loader,\n       \
+          \ test_loader,\n        device,\n        epochs=epochs,\n        lr=lr,\n\
+          \        save_path=save_path\n    )\n    clean_acc_A = evaluate(model, test_loader,\
+          \ device)\n    print(\"Trained model A:\", clean_acc_A)\n    dict_accuracy\
+          \ = {\"model\": \"mnist_classifier\", \"accuracy\": clean_acc_A}\n    with\
+          \ open(\"/trained_models/classifier/accuracy.json\", \"w\") as f:\n    \
+          \    json.dump(dict_accuracy, f)\n    print(\"Model saved to PVC:\", save_path)\n\
+          \n"
         image: gkorod/trainer:v1.0
 pipelineInfo:
   name: fgsm-training-pipeline

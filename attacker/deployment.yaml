@@ -1,40 +1,44 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Pod
 metadata:
   name: attacker
   namespace: kubeflow
   labels:
     app: attacker
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: attacker
-  template:
-    metadata:
-      labels:
-        app: attacker
-    spec:
-      containers:
-        - name: attacker
-          image: gkorod/attacker:v1.1
-          imagePullPolicy: Always
-          env:
-            - name: DATA_URL
-              value: 'http://147.102.19.170:4422/download/classifier'
-            - name: MODEL_PATH
-              value: '/trained_models/model_a.pth'
-            - name: BATCH_SIZE
-              value: '64'
-            - name: EPSILON
-              value: '0.15'
-            - name: EVAL_SAMPLES
-              value: '5000'
-          volumeMounts:
-            - name: trained-models-volume
-              mountPath: /trained_models
-
-      volumes:
+  restartPolicy: Never
+  runtimeClassName: nvidia   # 👈 add this
+  containers:
+    - name: attacker
+      image: gkorod/attacker:v1.0
+      imagePullPolicy: Always
+      resources:
+        limits:
+          nvidia.com/gpu: 1   # 👈 request GPU
+      env:
+        - name: SELECTOR
+          value: "validate_defence"
+        - name: DATA_URL
+          value: "http://147.102.19.170:4422/download/classifier"
+        - name: MODEL_PATH
+          value: "/trained_models/classifier/model_a.pth"
+        - name: MODEL_WITH_DEFENCE
+          value: "/trained_models/classifier_retrained_adv/model_a.pth"
+        - name: BATCH_SIZE
+          value: "64"
+        - name: EPSILON
+          value: "0.15"
+        - name: EVAL_SAMPLES
+          value: "5000"
+      volumeMounts:
         - name: trained-models-volume
-          persistentVolumeClaim:
-            claimName: trained-models
+          mountPath: /trained_models
+        - mountPath: "/datasets"
+          name: data-volume
+  volumes:
+    - name: trained-models-volume
+      persistentVolumeClaim:
+        claimName: trained-models
+    - name: data-volume
+      persistentVolumeClaim:
+        claimName: datasets

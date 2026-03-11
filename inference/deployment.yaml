@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: clean-inference
+  namespace: kubeflow
+  labels:
+    app: clean-inference
+spec:
+  restartPolicy: Never
+  runtimeClassName: nvidia
+  containers:
+    - name: clean-inference
+      image: gkorod/clean-inference:v1.1
+      imagePullPolicy: Always
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      env:
+        - name: DEFENDER_URL
+          value: "http://147.102.19.170:5000/start_defence"
+        - name: DATA_URL
+          value: "http://147.102.19.170:4422/download/attack"
+        - name: MODEL_PATH
+          value: "/trained_models/classifier/model_a.pth"
+        - name: CLEAN_ACCURACY
+          value: "/trained_models/classifier/accuracy.json"
+        - name: BATCH_SIZE
+          value: "64"
+        - name: EPOCHS
+          value: "10"
+        - name: LR
+          value: "0.001"
+
+      volumeMounts:
+        - name: trained-models-volume
+          mountPath: /trained_models
+
+  volumes:
+    - name: trained-models-volume
+      persistentVolumeClaim:
+        claimName: trained-models

@@ -52,7 +52,8 @@ def train_model_a(
     import os
     import torch
     from classifier import MNISTClassifier
-    from standard_training import get_mnist_loaders, train_standard
+    from standard_training import get_mnist_loaders, train_standard,evaluate
+    import json
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -65,9 +66,10 @@ def train_model_a(
 
     model = MNISTClassifier().to(device)
 
+
     # ✅ WRITE DIRECTLY TO PVC
-    os.makedirs("/trained_models", exist_ok=True)
-    save_path = "/trained_models/model_a.pth"
+    os.makedirs("/trained_models/classifier", exist_ok=True)
+    save_path = "/trained_models/classifier/model_a.pth"
 
     train_standard(
         model,
@@ -78,7 +80,11 @@ def train_model_a(
         lr=lr,
         save_path=save_path
     )
-
+    clean_acc_A = evaluate(model, test_loader, device)
+    print("Trained model A:", clean_acc_A)
+    dict_accuracy = {"model": "mnist_classifier", "accuracy": clean_acc_A}
+    with open("/trained_models/classifier/accuracy.json", "w") as f:
+        json.dump(dict_accuracy, f)
     print("Model saved to PVC:", save_path)
 
 
@@ -101,6 +107,8 @@ def fgsm_training_pipeline(
         batch_size=batch_size,
         lr=lr,
     )
+    train_task.set_accelerator_type('nvidia.com/gpu')
+    train_task.set_accelerator_limit(1)
 
     # ✅ Persist trained model
     kubernetes.mount_pvc(
@@ -137,7 +145,7 @@ json_info = {
     "experiment": "experiment_test",
     "pipeline_name": "fgsm_mnist_pipeline",
     "job_name": "fgsm_training_job",
-    "pipeline_version": "1"
+    "pipeline_version": "27"
 }
 
 files = {

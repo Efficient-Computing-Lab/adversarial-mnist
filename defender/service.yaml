@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: defender-lb
+  namespace: kubeflow
+  labels:
+    app: defender
+spec:
+  type: LoadBalancer
+  selector:
+    app: defender
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5000
+      targetPort: 5000

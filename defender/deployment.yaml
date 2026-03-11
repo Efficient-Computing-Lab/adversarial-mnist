@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defender
+  namespace: kubeflow
+  labels:
+    app: defender
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: defender
+  template:
+    metadata:
+      labels:
+        app: defender
+    spec:
+      containers:
+        - name: defender
+          image: gkorod/defender:v1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DATA_URL
+              value: "http://147.102.19.170:4422/download/"
+            - name: INITIALIZER_URL
+              value: "http://147.102.19.170:5005/submit"
+          volumeMounts:
+            - name: trained-models-volume
+              mountPath: /trained_models
+
+      volumes:
+        - name: trained-models-volume
+          persistentVolumeClaim:
+            claimName: trained-models
