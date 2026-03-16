@@ -29,6 +29,9 @@ along with their registered accuracies are stored in Kubernetes
 volume.
 
 ```shell
+curl -X POST http://<ip>:4422/upload/ \
+    -F "file=@/path/to/dataset.zip" \
+    -F "model_name=<model_name>"
 cd trainer
 python3 train.py
 ```
